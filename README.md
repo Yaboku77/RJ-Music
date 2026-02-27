@@ -13,8 +13,6 @@
 [![Stars](https://img.shields.io/github/stars/Yaboku77/RJ-Music?style=for-the-badge)](https://github.com/Yaboku77/rj_music/stargazers)
 [![Downloads](https://img.shields.io/github/downloads/Yaboku77/RJ-Music/total?style=for-the-badge)](https://github.com/Yaboku77/RJ-Music/releases)
 
-[![Join us on Telegram](https://img.shields.io/badge/Join_us_on_Telegram-0088cc?style=for-the-badge&logo=telegram)](https://t.me/jhelumcorp)
-
 [Download](https://github.com/Yaboku77/rj_music/releases/latest) • [Website](https://rj-music-five.vercel.app/)  • [Report Bug](https://github.com/Yaboku77/rj_music/issues)
 
 ---
