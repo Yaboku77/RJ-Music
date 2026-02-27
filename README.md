@@ -8,14 +8,14 @@
 
 *Experience the freedom of unlimited, ad-free music streaming from YouTube Music*
 
-[![GitHub release](https://img.shields.io/github/v/release/Yaboku77/rj_music?style=for-the-badge)](https://github.com/Yaboku77/rj_music/releases/latest)
+[![GitHub release](https://img.shields.io/github/v/release/Yaboku77/RJ-Music?style=for-the-badge)](https://github.com/Yaboku77/rj_music/releases/latest)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=for-the-badge)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/Yaboku77/rj_music?style=for-the-badge)](https://github.com/Yaboku77/rj_music/stargazers)
-[![Downloads](https://img.shields.io/github/downloads/Yaboku77/rj_music/total?style=for-the-badge)](https://github.com/Yaboku77/rj_music/releases)
+[![Stars](https://img.shields.io/github/stars/Yaboku77/RJ-Music?style=for-the-badge)](https://github.com/Yaboku77/rj_music/stargazers)
+[![Downloads](https://img.shields.io/github/downloads/Yaboku77/RJ-Music/total?style=for-the-badge)](https://github.com/Yaboku77/RJ-Music/releases)
 
 [![Join us on Telegram](https://img.shields.io/badge/Join_us_on_Telegram-0088cc?style=for-the-badge&logo=telegram)](https://t.me/jhelumcorp)
 
-[Download](https://github.com/Yaboku77/rj_music/releases/latest) • [Website](https://rj_musicmusic.vercel.app/)  • [Report Bug](https://github.com/Yaboku77/rj_music/issues)
+[Download](https://github.com/Yaboku77/rj_music/releases/latest) • [Website](https://rj-music-five.vercel.app/)  • [Report Bug](https://github.com/Yaboku77/rj_music/issues)
 
 ---
 
@@ -58,7 +58,7 @@ Immerse yourself in crystal-clear audio quality, discover artists from every cor
 
 ### Android
 
-Download the latest APK from our [releases page](https://github.com/Yaboku77/rj_music/releases/latest) and install it on your device.
+Download the latest APK from our [releases page](https://github.com/Yaboku77/RJ-Music/releases/latest) and install it on your device.
 
 ### Building from Source
 
