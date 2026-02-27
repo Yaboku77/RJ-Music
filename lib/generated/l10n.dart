@@ -55,8 +55,8 @@ class S {
   }
 
   /// `RJ Music`
-  String get RJ Music {
-    return Intl.message('RJ Music', name: 'RJ Music', desc: '', args: []);
+  String get RJMusic {
+    return Intl.message('RJ Music', name: 'RJMusic', desc: '', args: []);
   }
 
   /// `Next Up`
@@ -605,76 +605,6 @@ class S {
   /// `Developer`
   String get Developer {
     return Intl.message('Developer', name: 'Developer', desc: '', args: []);
-  }
-
-  /// `Sheikh Haziq`
-  String get Sheikh_Haziq {
-    return Intl.message(
-      'Sheikh Haziq',
-      name: 'Sheikh_Haziq',
-      desc: '',
-      args: [],
-    );
-  }
-
-  /// `Organisation`
-  String get Organisation {
-    return Intl.message(
-      'Organisation',
-      name: 'Organisation',
-      desc: '',
-      args: [],
-    );
-  }
-
-  /// `Jhelum Corp`
-  String get Jhelum_Corp {
-    return Intl.message('Jhelum Corp', name: 'Jhelum_Corp', desc: '', args: []);
-  }
-
-  /// `Telegram`
-  String get Telegram {
-    return Intl.message('Telegram', name: 'Telegram', desc: '', args: []);
-  }
-
-  /// `Contributors`
-  String get Contributors {
-    return Intl.message(
-      'Contributors',
-      name: 'Contributors',
-      desc: '',
-      args: [],
-    );
-  }
-
-  /// `Source Code`
-  String get Source_Code {
-    return Intl.message('Source Code', name: 'Source_Code', desc: '', args: []);
-  }
-
-  /// `Bug Report`
-  String get Bug_Report {
-    return Intl.message('Bug Report', name: 'Bug_Report', desc: '', args: []);
-  }
-
-  /// `Feature Request`
-  String get Feature_Request {
-    return Intl.message(
-      'Feature Request',
-      name: 'Feature_Request',
-      desc: '',
-      args: [],
-    );
-  }
-
-  /// `Made in Kashmir`
-  String get Made_In_Kashmir {
-    return Intl.message(
-      'Made in Kashmir',
-      name: 'Made_In_Kashmir',
-      desc: '',
-      args: [],
-    );
   }
 
   /// `Check for Update`

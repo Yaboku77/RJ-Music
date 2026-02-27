@@ -36,6 +36,7 @@ Immerse yourself in crystal-clear audio quality, discover artists from every cor
 - 🌙 **Background Playback** - Keep the music playing while you multitask
 - 💾 **Offline Downloads** - Save your favorite tracks for offline listening
 - ⏰ **Sleep Timer** - Fall asleep to your favorite music with auto-stop
+- 🤝 **Listening Together** - Start a Jam Session and listen with friends in real-time
 
 ### Discovery & Organization
 - 🔍 **Smart Search** - Find songs, artists, and playlists effortlessly
