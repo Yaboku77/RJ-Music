@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dynamic_color/dynamic_color.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -27,7 +28,7 @@ import 'utils/router.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  if (Platform.isAndroid) {
+  if (!kIsWeb && Platform.isAndroid) {
     await JustAudioBackground.init(
       androidNotificationChannelId: 'com.jhelum.rj_music.audio',
       androidNotificationChannelName: 'Audio playback',
@@ -37,7 +38,7 @@ void main() async {
     );
   }
 
-  if (Platform.isWindows || Platform.isLinux) {
+  if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
     JustAudioMediaKit.ensureInitialized();
     JustAudioMediaKit.bufferSize = 8 * 1024 * 1024;
     JustAudioMediaKit.title = 'RJ Music';
@@ -157,7 +158,7 @@ class RJMusic extends StatelessWidget {
 
 Future<void> initialiseHive() async {
   String? applicationDataDirectoryPath;
-  if (Platform.isWindows || Platform.isLinux) {
+  if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
     applicationDataDirectoryPath =
         "${(await getApplicationSupportDirectory()).path}/database";
   }
@@ -168,36 +169,61 @@ Future<void> initialiseHive() async {
   await Hive.openBox('SONG_HISTORY');
   await Hive.openBox('FAVOURITES');
   await Hive.openBox('DOWNLOADS');
+  await Hive.openBox('JAM_HISTORY');
 }
 
 Future<YTConfig?>? getYtConfig() async {
-  String? visitorData = await Hive.box('SETTINGS').get('VISITOR_ID');
-  String language = await Hive.box(
-    'SETTINGS',
-  ).get('YT_LANGUAGE', defaultValue: 'en');
-  String location = await Hive.box(
-    'SETTINGS',
-  ).get('YT_LOCATION', defaultValue: 'IN');
+  String visitorData =
+      await Hive.box('SETTINGS').get('VISITOR_ID') as String? ?? 'fallback';
+  String language =
+      await Hive.box('SETTINGS').get('YT_LANGUAGE', defaultValue: 'en')
+          as String? ??
+      'en';
+  String location =
+      await Hive.box('SETTINGS').get('YT_LOCATION', defaultValue: 'IN')
+          as String? ??
+      'IN';
   String? apikey = await Hive.box(
     'SETTINGS',
   ).get('YT_API_KEY', defaultValue: null);
-  String clientName = await Hive.box(
-    'SETTINGS',
-  ).get('YT_CLIENT_NAME', defaultValue: 'WEB_REMIX');
+  String clientName =
+      await Hive.box(
+            'SETTINGS',
+          ).get('YT_CLIENT_NAME', defaultValue: 'WEB_REMIX')
+          as String? ??
+      'WEB_REMIX';
   String? clientVersion = await Hive.box(
     'SETTINGS',
   ).get('YT_CLIENT_VERSION', defaultValue: null);
 
-  if (visitorData == null || apikey == null || clientVersion == null) {
-    final config = await YTClient.getConfig();
+  if (apikey == null || clientVersion == null || visitorData == 'fallback') {
+    YTConfig? config;
+    try {
+      config = await YTClient.getConfig();
+    } catch (e) {
+      debugPrint("Failed to fetch YT config: $e");
+    }
+
+    // Fallback for Web CORS issues or network failures
+    config ??= YTConfig(
+      visitorData: 'fallback_visitor_data',
+      language: 'en',
+      location: 'IN',
+      apiKey: 'dummy_api_key_web',
+      clientName: 'WEB_REMIX',
+      clientVersion: '1.20230508.01.00',
+    );
+
     final box = Hive.box('SETTINGS');
     await box.putAll({
-      'VISITOR_ID': visitorData ?? config?.visitorData,
+      'VISITOR_ID': visitorData == 'fallback'
+          ? config.visitorData
+          : visitorData,
       'YT_LOCATION': location,
       'YT_LANGUAGE': language,
-      'YT_API_KEY': config?.apiKey,
-      'YT_CLIENT_NAME': config?.clientName,
-      'YT_CLIENT_VERSION': config?.clientVersion,
+      'YT_API_KEY': config.apiKey,
+      'YT_CLIENT_NAME': config.clientName,
+      'YT_CLIENT_VERSION': config.clientVersion,
     });
     return config;
   } else {

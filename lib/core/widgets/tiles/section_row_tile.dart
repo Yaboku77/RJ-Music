@@ -50,7 +50,7 @@ class SectionRowTile extends StatelessWidget {
         },
         child: RepaintBoundary(
           child: SizedBox(
-            height:  216,
+            height: 216,
             width: imageWidth.toDouble() + 16,
             child: Padding(
               padding: const EdgeInsets.all(8.0),

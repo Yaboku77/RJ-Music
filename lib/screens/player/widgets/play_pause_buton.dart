@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
+import 'package:m3e_collection/m3e_collection.dart';
 import 'package:rj_music/services/media_player.dart';
 import 'package:rj_music/utils/extensions.dart';
-import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
 
 class PlayPauseButton extends StatefulWidget {
-  const PlayPauseButton({
-    super.key,
-    this.size = 30,
-  });
+  const PlayPauseButton({super.key, this.size = 30});
 
   final double size;
 
@@ -53,6 +50,16 @@ class _PlayPauseButtonState extends State<PlayPauseButton>
                 ? _animationController.forward()
                 : _animationController.reverse();
           }
+
+          // Show ExpressiveLoadingIndicator when buffering/loading
+          if (buttonState == ButtonState.loading) {
+            return const SizedBox(
+              height: 60,
+              width: 60,
+              child: Center(child: ExpressiveLoadingIndicator()),
+            );
+          }
+
           return AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             height: 60,
@@ -62,15 +69,14 @@ class _PlayPauseButtonState extends State<PlayPauseButton>
               color: (context.isDarkMode ? Colors.white : Colors.black)
                   .withAlpha(50),
               borderRadius: BorderRadius.circular(
-                  buttonState == ButtonState.playing ? 15 : 40),
+                buttonState == ButtonState.playing ? 15 : 40,
+              ),
             ),
-            child: (buttonState == ButtonState.loading)
-                ? const ExpressiveLoadingIndicator()
-                : AnimatedIcon(
-                    icon: AnimatedIcons.play_pause,
-                    progress: _animationController,
-                    size: 40,
-                  ),
+            child: AnimatedIcon(
+              icon: AnimatedIcons.play_pause,
+              progress: _animationController,
+              size: 40,
+            ),
           );
         },
       ),

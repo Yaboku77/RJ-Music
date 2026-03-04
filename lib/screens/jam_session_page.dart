@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
+import 'package:rj_music/services/jam_history_service.dart';
 import 'package:rj_music/services/jam_session_service.dart';
+import 'package:share_plus/share_plus.dart';
 
 class JamSessionPage extends StatefulWidget {
   const JamSessionPage({super.key});
@@ -15,6 +18,7 @@ class _JamSessionPageState extends State<JamSessionPage>
   bool _isLoading = false;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+  List<JamHistoryEntry> _history = [];
 
   @override
   void initState() {
@@ -27,6 +31,7 @@ class _JamSessionPageState extends State<JamSessionPage>
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
     jamError.addListener(_onError);
+    _loadHistory();
   }
 
   @override
@@ -49,6 +54,10 @@ class _JamSessionPageState extends State<JamSessionPage>
     }
   }
 
+  void _loadHistory() {
+    setState(() => _history = JamHistoryService.load());
+  }
+
   Future<void> _startJam() async {
     setState(() => _isLoading = true);
     try {
@@ -58,8 +67,8 @@ class _JamSessionPageState extends State<JamSessionPage>
     }
   }
 
-  Future<void> _joinJam() async {
-    final code = _codeController.text.trim().toUpperCase();
+  Future<void> _joinJam([String? prefillCode]) async {
+    final code = (prefillCode ?? _codeController.text).trim().toUpperCase();
     if (code.length != 6) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter a valid 6-character session code')),
@@ -79,52 +88,75 @@ class _JamSessionPageState extends State<JamSessionPage>
     try {
       await jamSessionService.leaveSession();
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        _loadHistory();
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Scaffold(
-      backgroundColor: colorScheme.surface,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(
-            Icons.keyboard_arrow_down_rounded,
-            color: colorScheme.onSurface,
+    // No PopScope here — when shown as a dialog via showGeneralDialog
+    // (useRootNavigator: true), the root navigator handles back presses
+    // cleanly. PopScope(canPop: false) was causing two bugs:
+    // 1. It blocked the root nav pop → dialog stuck
+    // 2. Back event fell through to GoRouter → player got closed
+    return GestureDetector(
+      // Swipe down to dismiss
+      onVerticalDragEnd: (details) {
+        if ((details.primaryVelocity ?? 0) > 400) {
+          _safeBack(context);
+        }
+      },
+      child: Scaffold(
+        backgroundColor: colorScheme.surface,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            icon: Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: colorScheme.onSurface,
+            ),
+            onPressed: () => _safeBack(context),
           ),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.headphones_rounded,
-              color: colorScheme.primary,
-              size: 22,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              'Jam Session',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: colorScheme.onSurface,
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.headphones_rounded,
+                color: colorScheme.primary,
+                size: 22,
               ),
-            ),
-          ],
+              const SizedBox(width: 8),
+              Text(
+                'Jam Session',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: colorScheme.onSurface,
+                ),
+              ),
+            ],
+          ),
+          centerTitle: true,
         ),
-        centerTitle: true,
-      ),
-      body: ValueListenableBuilder<bool>(
-        valueListenable: jamIsInSession,
-        builder: (context, inSession, _) => inSession
-            ? _buildActiveSession(colorScheme)
-            : _buildLobby(colorScheme),
+        body: ValueListenableBuilder<bool>(
+          valueListenable: jamIsInSession,
+          builder: (context, inSession, _) => inSession
+              ? _buildActiveSession(colorScheme)
+              : _buildLobby(colorScheme),
+        ),
       ),
     );
+  }
+
+  /// Works whether opened via context.push('/jam') or showGeneralDialog.
+  void _safeBack(BuildContext context) {
+    if (context.canPop()) {
+      context.pop();
+    }
   }
 
   Widget _buildLobby(ColorScheme colorScheme) {
@@ -262,9 +294,129 @@ class _JamSessionPageState extends State<JamSessionPage>
               textStyle: const TextStyle(fontSize: 16),
             ),
           ),
+
+          // ── Recent sessions ──────────────────────────────────────────────
+          if (_history.isNotEmpty) ..._buildHistory(colorScheme),
         ],
       ),
     );
+  }
+
+  List<Widget> _buildHistory(ColorScheme colorScheme) {
+    String formatDuration(Duration d) {
+      if (d.inMinutes < 1) return '${d.inSeconds}s';
+      if (d.inHours < 1) return '${d.inMinutes}m ${d.inSeconds % 60}s';
+      return '${d.inHours}h ${d.inMinutes % 60}m';
+    }
+
+    String formatDate(DateTime dt) {
+      final diff = DateTime.now().difference(dt);
+      if (diff.inMinutes < 1) return 'Just now';
+      if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+      if (diff.inDays < 1) return '${diff.inHours}h ago';
+      if (diff.inDays == 1) return 'Yesterday';
+      return '${diff.inDays}d ago';
+    }
+
+    return [
+      const SizedBox(height: 36),
+      Row(
+        children: [
+          Text(
+            'Recent Sessions',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const Spacer(),
+          TextButton(
+            onPressed: () {
+              JamHistoryService.clear();
+              _loadHistory();
+            },
+            child: Text(
+              'Clear',
+              style: TextStyle(
+                color: colorScheme.onSurfaceVariant,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      ...List.generate(_history.length, (i) {
+        final entry = _history[i];
+        return Dismissible(
+          key: ValueKey(
+            '${entry.code}_${entry.startedAt.millisecondsSinceEpoch}',
+          ),
+          direction: DismissDirection.endToStart,
+          onDismissed: (_) {
+            JamHistoryService.delete(entry);
+            _loadHistory();
+          },
+          background: Container(
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 16),
+            decoration: BoxDecoration(
+              color: colorScheme.errorContainer,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(
+              Icons.delete_rounded,
+              color: colorScheme.onErrorContainer,
+            ),
+          ),
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 4,
+              ),
+              leading: CircleAvatar(
+                backgroundColor: entry.wasHost
+                    ? colorScheme.primaryContainer
+                    : colorScheme.secondaryContainer,
+                child: Icon(
+                  entry.wasHost ? Icons.star_rounded : Icons.person_rounded,
+                  color: entry.wasHost
+                      ? colorScheme.primary
+                      : colorScheme.onSecondaryContainer,
+                  size: 20,
+                ),
+              ),
+              title: Text(
+                entry.code,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 4,
+                ),
+              ),
+              subtitle: Text(
+                '${entry.wasHost ? 'Host' : 'Guest'} · '
+                '${formatDuration(entry.duration)} · '
+                '${formatDate(entry.startedAt)}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              trailing: IconButton(
+                tooltip: 'Rejoin',
+                icon: Icon(Icons.login_rounded, color: colorScheme.primary),
+                onPressed: _isLoading ? null : () => _joinJam(entry.code),
+              ),
+            ),
+          ),
+        );
+      }),
+    ];
   }
 
   Widget _buildActiveSession(ColorScheme colorScheme) {
@@ -285,7 +437,7 @@ class _JamSessionPageState extends State<JamSessionPage>
                   color: colorScheme.primaryContainer,
                   boxShadow: [
                     BoxShadow(
-                      color: colorScheme.primary.withOpacity(0.4),
+                      color: colorScheme.primary.withValues(alpha: 0.4),
                       blurRadius: 24,
                       spreadRadius: 4,
                     ),
@@ -350,6 +502,48 @@ class _JamSessionPageState extends State<JamSessionPage>
             textAlign: TextAlign.center,
           ),
 
+          // Reconnect status banner
+          ValueListenableBuilder<String?>(
+            valueListenable: jamStatusNotifier,
+            builder: (context, status, _) {
+              if (status == null) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: colorScheme.tertiaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: colorScheme.onTertiaryContainer,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        status,
+                        style: TextStyle(
+                          color: colorScheme.onTertiaryContainer,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+
           const SizedBox(height: 24),
 
           // Session code
@@ -357,6 +551,7 @@ class _JamSessionPageState extends State<JamSessionPage>
             valueListenable: jamSessionCode,
             builder: (context, code, _) {
               if (code == null) return const SizedBox.shrink();
+              final shareLink = '$jamDeepLinkBase/$code';
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -406,6 +601,22 @@ class _JamSessionPageState extends State<JamSessionPage>
                           ),
                         ],
                       ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  // Share link button
+                  OutlinedButton.icon(
+                    onPressed: () => SharePlus.instance.share(
+                      ShareParams(
+                        text:
+                            'Join my RJ Music Jam! Tap the link to join: $shareLink',
+                        subject: 'Join my Jam on RJ Music',
+                      ),
+                    ),
+                    icon: const Icon(Icons.share_rounded, size: 18),
+                    label: const Text('Share Invite Link'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(44),
                     ),
                   ),
                 ],

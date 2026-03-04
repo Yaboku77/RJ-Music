@@ -69,6 +69,18 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _goBranch(int index) {
+    // Double-tap same tab → scroll to top first
+    if (index == widget.navigationShell.currentIndex) {
+      final sc = PrimaryScrollController.maybeOf(context);
+      if (sc != null && sc.hasClients) {
+        sc.animateTo(
+          0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+        return; // don't navigate, just scroll to top
+      }
+    }
     widget.navigationShell.goBranch(
       index,
       initialLocation: index == widget.navigationShell.currentIndex,

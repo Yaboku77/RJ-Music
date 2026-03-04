@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -9,6 +10,7 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:yt_music/ytmusic.dart';
 
+import 'package:hive_flutter/hive_flutter.dart';
 import '../utils/add_history.dart';
 import 'settings_manager.dart';
 
@@ -119,6 +121,11 @@ class MediaPlayer extends ChangeNotifier {
     _listenToShuffle();
     _listenToAutofetch();
 
+    // ── Session restore ─────────────────────────────────────────────────────
+    // Load the last played song so the player is pre-loaded on app restart.
+    // The song is restored paused — just like YouTube Music behaviour.
+    _restoreLastSession();
+
     Timer.periodic(const Duration(seconds: 10), (timer) {
       if (currentSongNotifier.value != null && _player.playing) {
         GetIt.I<YTMusic>().addPlayingStats(
@@ -127,6 +134,32 @@ class MediaPlayer extends ChangeNotifier {
         );
       }
     });
+  }
+
+  Future<void> _restoreLastSession() async {
+    try {
+      final box = Hive.box('SETTINGS');
+      final raw = box.get('LAST_SONG');
+      if (raw == null) return;
+      final Map<String, dynamic> song = Map<String, dynamic>.from(
+        jsonDecode(raw as String) as Map,
+      );
+      if (song['videoId'] == null) return;
+      final source = await _getAudioSource(song);
+      await _player.setAudioSource(source);
+      // Stay paused — user taps play when ready
+      // Notify listeners so mini player shows immediately
+      notifyListeners();
+    } catch (_) {
+      // Never crash on session restore failure
+    }
+  }
+
+  Future<void> _saveLastSession(Map<String, dynamic> song) async {
+    try {
+      final box = Hive.box('SETTINGS');
+      box.put('LAST_SONG', jsonEncode(song));
+    } catch (_) {}
   }
 
   Future<void> _loadLoudnessEnhancer() async {
@@ -281,7 +314,17 @@ class MediaPlayer extends ChangeNotifier {
             index != null && _songList.isNotEmpty && index < _songList.length
             ? _songList[index].tag
             : null;
-        if (_songList.isNotEmpty && _currentIndex.value != null) {
+
+        // Persist the new current song for session restore on next app start
+        if (_currentSongNotifier.value?.extras != null) {
+          _saveLastSession(
+            Map<String, dynamic>.from(_currentSongNotifier.value!.extras!),
+          );
+        }
+
+        if (_songList.isNotEmpty &&
+            _currentIndex.value != null &&
+            _currentIndex.value! < _songList.length) {
           final MediaItem item = _songList[_currentIndex.value!].tag;
           addHistory(item.extras!);
         }
@@ -311,14 +354,23 @@ class MediaPlayer extends ChangeNotifier {
   }
 
   Future<AudioSource> _getAudioSource(Map<String, dynamic> song) async {
+    // Safely extract thumbnail URL — may be null after JSON round-trip
+    final thumbnails = song['thumbnails'] as List?;
+    String? thumbUrl;
+    if (thumbnails != null && thumbnails.isNotEmpty) {
+      final first = thumbnails.first;
+      final url = first is Map ? first['url']?.toString() : null;
+      thumbUrl = url?.replaceAll('w60-h60', 'w225-h225');
+    }
+
     MediaItem tag = MediaItem(
       id: song['videoId'],
       title: song['title'] ?? 'Title',
-      album: song['album']?['name'],
-      artUri: Uri.parse(
-        song['thumbnails']?.first['url'].replaceAll('w60-h60', 'w225-h225'),
-      ),
-      artist: song['artists']?.map((artist) => artist['name']).join(','),
+      album: (song['album'] as Map?)?['name'],
+      artUri: thumbUrl != null ? Uri.tryParse(thumbUrl) : null,
+      artist: (song['artists'] as List?)
+          ?.map((artist) => (artist as Map)['name'])
+          .join(','),
       extras: song,
     );
 
@@ -340,11 +392,7 @@ class MediaPlayer extends ChangeNotifier {
 
   Future<void> playSong(Map<String, dynamic> song) async {
     if (song['videoId'] == null) return;
-
-    // stop and set the tapped song as the single source so it plays immediately
-    // await _player.pause();
-    // await _player.stop();
-    // await _player.clearAudioSources();
+    _saveLastSession(song); // persist for session restore
 
     final source = await _getAudioSource(song);
     await _player.setAudioSource(source);

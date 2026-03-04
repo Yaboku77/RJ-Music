@@ -59,6 +59,21 @@ class PlayerSettingsPage extends StatelessWidget {
                                   .setSkipSilence(value);
                             },
                           ),
+                          ExpressiveSwitchListTile(
+                            title: const Text('Song Cache'),
+                            subtitle: const Text(
+                              'Cache streamed songs to reduce repeated loading',
+                            ),
+                            leading: SettingsColorIcon(
+                              icon: Icons.cached_rounded,
+                            ),
+                            value: s.songCacheEnabled,
+                            onChanged: (value) {
+                              context
+                                  .read<PlayerSettingsCubit>()
+                                  .setSongCacheEnabled(value);
+                            },
+                          ),
                         ],
                       ),
                     ],

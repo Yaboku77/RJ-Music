@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:audiotags/audiotags.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -30,18 +31,18 @@ class FileStorage {
 
   static Future<void> initialise() async {
     Directory directory = Directory("dir");
-    if (Platform.isAndroid) {
+    if (!kIsWeb && Platform.isAndroid) {
       directory = Directory(
         Hive.box(
           'SETTINGS',
         ).get('APP_FOLDER', defaultValue: FileStorage.defaultPath),
       );
-    } else if (Platform.isWindows) {
+    } else if (!kIsWeb && Platform.isWindows) {
       directory = Directory(
         path.join((await getDownloadsDirectory())!.path, 'RJ Music'),
       );
     } else {
-      directory = await getApplicationDocumentsDirectory();
+      directory = Directory(''); // Web or fallback
     }
 
     _storagePaths = StoragePaths(
@@ -56,19 +57,19 @@ class FileStorage {
 
   Future<void> updateDirectories() async {
     Directory directory = Directory("dir");
-    if (Platform.isAndroid) {
+    if (!kIsWeb && Platform.isAndroid) {
       directory = Directory(
         Hive.box(
               'SETTINGS',
             ).get('APP_FOLDER', defaultValue: FileStorage.defaultPath) +
             '/RJ Music',
       );
-    } else if (Platform.isWindows) {
+    } else if (!kIsWeb && Platform.isWindows) {
       directory = Directory(
         path.join((await getDownloadsDirectory())!.path, 'RJ Music'),
       );
     } else {
-      directory = await getApplicationDocumentsDirectory();
+      directory = Directory(''); // Web
     }
     storagePaths = StoragePaths(
       basePath: directory.path,
@@ -217,6 +218,7 @@ class FileStorage {
   }
 
   static Future<bool> requestPermissions() async {
+    if (kIsWeb) return true;
     if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
       // Desktop platforms do not need permission
       return true;

@@ -8,7 +8,7 @@ import 'package:rj_music/core/utils/service_locator.dart';
 import 'package:rj_music/screens/home/cubit/home_cubit.dart';
 import 'package:rj_music/core/widgets/section_item.dart';
 import 'package:rj_music/screens/home/widgets/chips_row.dart';
-import 'package:rj_music/screens/jam_session_page.dart' as rj_music_jam_page;
+
 import 'package:m3e_collection/m3e_collection.dart';
 
 import '../../generated/l10n.dart';
@@ -100,15 +100,7 @@ class _HomePageState extends State<_HomePage> {
             centerTitle: false,
             actions: [
               IconButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) =>
-                          const rj_music_jam_page.JamSessionPage(),
-                    ),
-                  );
-                },
+                onPressed: () => context.push('/jam'),
                 icon: const Icon(Icons.headphones_rounded),
                 tooltip: 'Jam Session',
               ),
@@ -127,6 +119,7 @@ class _HomePageState extends State<_HomePage> {
                   return Center(child: Text(state.message ?? ''));
                 case HomeSuccess():
                   return SingleChildScrollView(
+                    primary: true,
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     controller: _scrollController,
                     child: SafeArea(

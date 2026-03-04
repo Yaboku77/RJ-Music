@@ -15,7 +15,6 @@ import 'package:provider/provider.dart';
 import 'package:sliding_up_panel/sliding_up_panel.dart';
 import 'package:text_scroll/text_scroll.dart';
 import 'package:yt_music/ytmusic.dart';
-import 'package:rj_music/screens/jam_session_page.dart' as rj_music_jam_page;
 
 import '../../generated/l10n.dart';
 import '../../services/download_manager.dart';
@@ -45,6 +44,8 @@ class _PlayerPageState extends State<PlayerPage> {
   bool showLyrics = false;
   bool fetchedSong = false;
   late MediaItem? currentSong;
+  int _slideDirection =
+      1; // 1 = next (enter from right), -1 = prev (enter from left)
 
   @override
   void initState() {
@@ -85,6 +86,19 @@ class _PlayerPageState extends State<PlayerPage> {
       setState(() {
         showLyrics = !showLyrics;
       });
+    }
+  }
+
+  void _onHorizontalDragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    if (velocity < -300) {
+      // Swipe left → next song — new song enters from RIGHT
+      setState(() => _slideDirection = 1);
+      GetIt.I<MediaPlayer>().player.seekToNext();
+    } else if (velocity > 300) {
+      // Swipe right → previous song — new song enters from LEFT
+      setState(() => _slideDirection = -1);
+      GetIt.I<MediaPlayer>().player.seekToPrevious();
     }
   }
 
@@ -177,15 +191,7 @@ class _PlayerPageState extends State<PlayerPage> {
                           ),
                           actions: [
                             AdaptiveIconButton(
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) =>
-                                        const rj_music_jam_page.JamSessionPage(),
-                                  ),
-                                );
-                              },
+                              onPressed: () => context.push('/jam'),
                               icon: const Icon(Icons.headphones_rounded),
                             ),
                             AdaptiveIconButton(
@@ -221,163 +227,263 @@ class _PlayerPageState extends State<PlayerPage> {
                               child: const QueueList(),
                             )
                           : null,
-                      body: SizedBox(
-                        width: double.maxFinite,
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            EdgeInsets padding = MediaQuery.of(context).padding;
-                            double maxWidth =
-                                constraints.maxWidth -
-                                padding.left -
-                                padding.right;
-                            double maxHeight =
-                                constraints.maxHeight -
-                                padding.top -
-                                padding.bottom;
-                            if (maxWidth > maxHeight) {
-                              return Row(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceEvenly,
-                                children: [
-                                  Artwork(
-                                    setShowLyrics: setShowLyrics,
-                                    showLyrics: showLyrics,
-                                    width: maxWidth / 2.3,
-                                    song: currentSong,
-                                    onImageReady: updateBackgroundColor,
-                                  ),
-                                  NameAndControls(
-                                    song: currentSong,
-                                    width: maxWidth - (maxWidth / 2.3),
-                                    height: maxHeight,
-                                    isRow: true,
-                                  ),
-                                ],
-                              );
-                            }
-                            return Stack(
-                              children: [
-                                Column(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceAround,
+                      body: GestureDetector(
+                        onHorizontalDragEnd: _onHorizontalDragEnd,
+                        onVerticalDragEnd: (details) {
+                          // Swipe down → minimize player
+                          if ((details.primaryVelocity ?? 0) > 300) {
+                            context.pop();
+                          }
+                        },
+                        child: SizedBox(
+                          width: double.maxFinite,
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              EdgeInsets padding = MediaQuery.of(
+                                context,
+                              ).padding;
+                              double maxWidth =
+                                  constraints.maxWidth -
+                                  padding.left -
+                                  padding.right;
+                              double maxHeight =
+                                  constraints.maxHeight -
+                                  padding.top -
+                                  padding.bottom;
+                              if (maxWidth > maxHeight) {
+                                return Row(
                                   crossAxisAlignment: CrossAxisAlignment.center,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
                                   children: [
-                                    Artwork(
-                                      setShowLyrics: setShowLyrics,
-                                      showLyrics: showLyrics,
-                                      width:
-                                          min(maxWidth, maxHeight / 2.2) - 24,
-                                      song: currentSong,
-                                      onImageReady: updateBackgroundColor,
+                                    ClipRect(
+                                      child: AnimatedSwitcher(
+                                        duration: const Duration(
+                                          milliseconds: 300,
+                                        ),
+                                        layoutBuilder:
+                                            (currentChild, previousChildren) =>
+                                                Stack(
+                                                  alignment: Alignment.center,
+                                                  children: [
+                                                    ...previousChildren,
+                                                    if (currentChild != null)
+                                                      currentChild,
+                                                  ],
+                                                ),
+                                        transitionBuilder: (child, anim) {
+                                          final isIncoming =
+                                              child.key ==
+                                              ValueKey(currentSong?.id);
+                                          // swipe-left(next): new FROM right(+1), old TO left(-1)
+                                          final dir = isIncoming
+                                              ? _slideDirection.toDouble()
+                                              : -_slideDirection.toDouble();
+                                          return SlideTransition(
+                                            position:
+                                                Tween<Offset>(
+                                                  begin: Offset(dir, 0),
+                                                  end: Offset.zero,
+                                                ).animate(
+                                                  CurvedAnimation(
+                                                    parent: anim,
+                                                    curve: Curves.easeOutCubic,
+                                                  ),
+                                                ),
+                                            child: child,
+                                          );
+                                        },
+                                        child: Artwork(
+                                          key: ValueKey(currentSong?.id),
+                                          setShowLyrics: setShowLyrics,
+                                          showLyrics: showLyrics,
+                                          width: maxWidth / 2.3,
+                                          song: currentSong,
+                                          onImageReady: updateBackgroundColor,
+                                        ),
+                                      ),
                                     ),
                                     NameAndControls(
                                       song: currentSong,
-                                      width: maxWidth,
-                                      height:
-                                          maxHeight -
-                                          min(maxWidth, maxHeight / 2.2) -
-                                          24,
+                                      width: maxWidth - (maxWidth / 2.3),
+                                      height: maxHeight,
+                                      isRow: true,
                                     ),
                                   ],
-                                ),
-                                SlidingUpPanel(
-                                  controller: panelController,
-                                  color: Colors.transparent,
-                                  padding: EdgeInsets.zero,
-                                  margin: EdgeInsets.zero,
-                                  borderRadius: const BorderRadius.only(
-                                    topLeft: Radius.circular(20),
-                                    topRight: Radius.circular(20),
+                                );
+                              }
+                              return Stack(
+                                children: [
+                                  Column(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceAround,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      ClipRect(
+                                        child: AnimatedSwitcher(
+                                          duration: const Duration(
+                                            milliseconds: 300,
+                                          ),
+                                          layoutBuilder:
+                                              (
+                                                currentChild,
+                                                previousChildren,
+                                              ) => Stack(
+                                                alignment: Alignment.center,
+                                                children: [
+                                                  ...previousChildren,
+                                                  if (currentChild != null)
+                                                    currentChild,
+                                                ],
+                                              ),
+                                          transitionBuilder: (child, anim) {
+                                            final isIncoming =
+                                                child.key ==
+                                                ValueKey(currentSong?.id);
+                                            final dir = isIncoming
+                                                ? _slideDirection.toDouble()
+                                                : -_slideDirection.toDouble();
+                                            return SlideTransition(
+                                              position:
+                                                  Tween<Offset>(
+                                                    begin: Offset(dir, 0),
+                                                    end: Offset.zero,
+                                                  ).animate(
+                                                    CurvedAnimation(
+                                                      parent: anim,
+                                                      curve:
+                                                          Curves.easeOutCubic,
+                                                    ),
+                                                  ),
+                                              child: child,
+                                            );
+                                          },
+                                          child: Artwork(
+                                            key: ValueKey(currentSong?.id),
+                                            setShowLyrics: setShowLyrics,
+                                            showLyrics: showLyrics,
+                                            width:
+                                                min(maxWidth, maxHeight / 2.2) -
+                                                24,
+                                            song: currentSong,
+                                            onImageReady: updateBackgroundColor,
+                                          ),
+                                        ),
+                                      ),
+                                      NameAndControls(
+                                        song: currentSong,
+                                        width: maxWidth,
+                                        height:
+                                            maxHeight -
+                                            min(maxWidth, maxHeight / 2.2) -
+                                            24,
+                                      ),
+                                    ],
                                   ),
-                                  boxShadow: const [],
-                                  minHeight:
-                                      50 +
-                                      MediaQuery.of(context).padding.bottom,
-                                  panel: ClipRRect(
+                                  SlidingUpPanel(
+                                    controller: panelController,
+                                    color: Colors.transparent,
+                                    padding: EdgeInsets.zero,
+                                    margin: EdgeInsets.zero,
                                     borderRadius: const BorderRadius.only(
                                       topLeft: Radius.circular(20),
                                       topRight: Radius.circular(20),
                                     ),
-                                    child: Container(
-                                      width: constraints.maxWidth,
-                                      alignment: Alignment.center,
-                                      decoration: const BoxDecoration(
-                                        borderRadius: BorderRadius.only(
-                                          topLeft: Radius.circular(20),
-                                          topRight: Radius.circular(20),
-                                        ),
+                                    boxShadow: const [],
+                                    minHeight:
+                                        50 +
+                                        MediaQuery.of(context).padding.bottom,
+                                    panel: ClipRRect(
+                                      borderRadius: const BorderRadius.only(
+                                        topLeft: Radius.circular(20),
+                                        topRight: Radius.circular(20),
                                       ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.center,
-                                        mainAxisSize: MainAxisSize.max,
-                                        children: [
-                                          ClipRRect(
-                                            child: BackdropFilter(
-                                              filter: ImageFilter.blur(
-                                                sigmaX: 3,
-                                                sigmaY: 3,
-                                              ),
-                                              child: Container(
-                                                height:
-                                                    50 +
-                                                    MediaQuery.of(
-                                                      context,
-                                                    ).padding.bottom,
-                                                width: double.maxFinite,
-                                                decoration: BoxDecoration(
-                                                  color: Theme.of(context)
-                                                      .scaffoldBackgroundColor
-                                                      .withAlpha(70),
-                                                  borderRadius:
-                                                      const BorderRadius.only(
-                                                        topLeft:
-                                                            Radius.circular(20),
-                                                        topRight:
-                                                            Radius.circular(20),
-                                                      ),
+                                      child: Container(
+                                        width: constraints.maxWidth,
+                                        alignment: Alignment.center,
+                                        decoration: const BoxDecoration(
+                                          borderRadius: BorderRadius.only(
+                                            topLeft: Radius.circular(20),
+                                            topRight: Radius.circular(20),
+                                          ),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.center,
+                                          mainAxisSize: MainAxisSize.max,
+                                          children: [
+                                            ClipRRect(
+                                              child: BackdropFilter(
+                                                filter: ImageFilter.blur(
+                                                  sigmaX: 3,
+                                                  sigmaY: 3,
                                                 ),
-                                                child: Column(
-                                                  mainAxisSize:
-                                                      MainAxisSize.max,
-                                                  mainAxisAlignment:
-                                                      MainAxisAlignment.center,
-                                                  children: [
-                                                    Container(
-                                                      height: 5,
-                                                      width: 50,
-                                                      decoration: BoxDecoration(
-                                                        color: greyColor,
-                                                        borderRadius:
-                                                            BorderRadius.circular(
-                                                              20,
-                                                            ),
-                                                      ),
-                                                    ),
-                                                    const SizedBox(height: 8),
-                                                    Text(
-                                                      S.of(context).Next_Up,
-                                                      style: textStyle(
+                                                child: Container(
+                                                  height:
+                                                      50 +
+                                                      MediaQuery.of(
                                                         context,
-                                                        bold: true,
+                                                      ).padding.bottom,
+                                                  width: double.maxFinite,
+                                                  decoration: BoxDecoration(
+                                                    color: Theme.of(context)
+                                                        .scaffoldBackgroundColor
+                                                        .withAlpha(70),
+                                                    borderRadius:
+                                                        const BorderRadius.only(
+                                                          topLeft:
+                                                              Radius.circular(
+                                                                20,
+                                                              ),
+                                                          topRight:
+                                                              Radius.circular(
+                                                                20,
+                                                              ),
+                                                        ),
+                                                  ),
+                                                  child: Column(
+                                                    mainAxisSize:
+                                                        MainAxisSize.max,
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .center,
+                                                    children: [
+                                                      Container(
+                                                        height: 5,
+                                                        width: 50,
+                                                        decoration: BoxDecoration(
+                                                          color: greyColor,
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                20,
+                                                              ),
+                                                        ),
                                                       ),
-                                                    ),
-                                                  ],
+                                                      const SizedBox(height: 8),
+                                                      Text(
+                                                        S.of(context).Next_Up,
+                                                        style: textStyle(
+                                                          context,
+                                                          bold: true,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
                                                 ),
                                               ),
                                             ),
-                                          ),
-                                          const Expanded(child: QueueList()),
-                                        ],
+                                            const Expanded(child: QueueList()),
+                                          ],
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              ],
-                            );
-                          },
-                        ),
+                                ],
+                              );
+                            },
+                          ),
+                        ), // closes GestureDetector
                       ),
                     ),
                   ),
@@ -425,23 +531,26 @@ class Artwork extends StatelessWidget {
                                 currentSong: song!,
                                 size: Size(width, width),
                               )
-                            : Container(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(8),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withAlpha(30),
-                                      spreadRadius: 10,
-                                      blurRadius: 10,
-                                      offset: const Offset(0, 3),
+                            : Hero(
+                                tag: 'player-artwork',
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(8),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withAlpha(30),
+                                        spreadRadius: 10,
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 3),
+                                      ),
+                                    ],
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: SongThumbnail(
+                                      song: song!.extras!,
+                                      onImageReady: onImageReady,
                                     ),
-                                  ],
-                                ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: SongThumbnail(
-                                    song: song!.extras!,
-                                    onImageReady: onImageReady,
                                   ),
                                 ),
                               ),

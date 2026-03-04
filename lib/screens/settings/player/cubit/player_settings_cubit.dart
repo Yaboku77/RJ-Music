@@ -14,11 +14,12 @@ class PlayerSettingsCubit extends Cubit<PlayerSettingsState> {
   late final VoidCallback _listener;
 
   PlayerSettingsCubit()
-      : super(
-          PlayerSettingsLoaded(
-            skipSilence: GetIt.I<SettingsManager>().skipSilence,
-          ),
-        ) {
+    : super(
+        PlayerSettingsLoaded(
+          skipSilence: GetIt.I<SettingsManager>().skipSilence,
+          songCacheEnabled: GetIt.I<SettingsManager>().songCacheEnabled,
+        ),
+      ) {
     _listener = () {
       if (!isClosed) {
         _emitState();
@@ -34,6 +35,7 @@ class PlayerSettingsCubit extends Cubit<PlayerSettingsState> {
     emit(
       PlayerSettingsLoaded(
         skipSilence: _settings.skipSilence,
+        songCacheEnabled: _settings.songCacheEnabled,
       ),
     );
   }
@@ -41,7 +43,10 @@ class PlayerSettingsCubit extends Cubit<PlayerSettingsState> {
   Future<void> setSkipSilence(bool value) async {
     await _player.skipSilence(value);
     _settings.skipSilence = value;
-    // listener will re-emit
+  }
+
+  void setSongCacheEnabled(bool value) {
+    _settings.songCacheEnabled = value;
   }
 
   @override

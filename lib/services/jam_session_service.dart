@@ -4,7 +4,9 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
+import 'package:rj_music/services/jam_history_service.dart';
 import 'package:rj_music/services/media_player.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -14,12 +16,18 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 const String _jamServerUrl = 'wss://rahul.anikaizoku.com';
 // ---------------------------------------------------------------------------
 
+/// Web link used for sharing — server redirects to rjmusic://open/jam/<code>
+const String jamDeepLinkBase = 'https://rahul.anikaizoku.com/join';
+
 // Public state notifiers (reactive UI)
 final ValueNotifier<bool> jamIsInSession = ValueNotifier(false);
 final ValueNotifier<bool> jamIsHost = ValueNotifier(false);
 final ValueNotifier<String?> jamSessionCode = ValueNotifier(null);
 final ValueNotifier<List<String>> jamParticipants = ValueNotifier([]);
 final ValueNotifier<String?> jamError = ValueNotifier(null);
+
+/// Human-readable status message for reconnect feedback (null = connected/idle)
+final ValueNotifier<String?> jamStatusNotifier = ValueNotifier(null);
 
 class JamSessionService {
   JamSessionService._();
@@ -28,14 +36,25 @@ class JamSessionService {
   WebSocketChannel? _channel;
   StreamSubscription? _sub;
 
-  // Heartbeat: keeps peers aligned every 3 s
+  // Heartbeat: keeps peers aligned every 2 s
   Timer? _heartbeatTimer;
 
   // Playback change listeners — auto-broadcast on local user actions
   StreamSubscription? _playbackStateSub;
   VoidCallback? _mediaItemSubListener;
+  StreamSubscription? _positionSub;
 
   String? _myId;
+  String? _currentRoom;
+  bool _voluntaryLeave = false;
+  bool _wasHost = false;
+  DateTime? _sessionStart;
+
+  // ---- Reconnect state ----
+  int _reconnectAttempts = 0;
+  static const int _maxReconnects = 3;
+  bool _isReconnecting = false;
+  Timer? _reconnectTimer;
 
   // ---- Echo-loop prevention ----
   int _applyTaskCount = 0;
@@ -50,6 +69,7 @@ class JamSessionService {
       _ignoreIncomingUntil?.isAfter(DateTime.now()) ?? false;
 
   // Track last applied timestamp so we ignore stale messages
+  // Allow up to 500ms clock skew between peers
   int _lastAppliedTs = 0;
 
   // Track the last ytid we commanded to play, to avoid re-triggering
@@ -66,11 +86,16 @@ class JamSessionService {
     await leaveSession();
     _myId = _randomId(8);
     final code = _randomCode();
+    _currentRoom = code;
+    _voluntaryLeave = false;
+    _wasHost = true;
+    _sessionStart = DateTime.now();
     jamSessionCode.value = code;
     jamIsHost.value = true;
     jamParticipants.value = ['🎧 You (host)'];
     jamIsInSession.value = true;
     jamError.value = null;
+    jamStatusNotifier.value = null;
 
     await _connect(code);
     _announceSelf('host');
@@ -82,19 +107,42 @@ class JamSessionService {
   Future<void> joinSession(String code) async {
     await leaveSession();
     _myId = _randomId(8);
-    jamSessionCode.value = code.toUpperCase();
+    final normalized = code.toUpperCase();
+    _currentRoom = normalized;
+    _voluntaryLeave = false;
+    _wasHost = false;
+    _sessionStart = DateTime.now();
+    jamSessionCode.value = normalized;
     jamIsHost.value = false;
     jamParticipants.value = ['🎧 You'];
     jamIsInSession.value = true;
     jamError.value = null;
+    jamStatusNotifier.value = null;
 
-    await _connect(code.toUpperCase());
+    await _connect(normalized);
     _announceSelf('guest');
     _startHeartbeat();
     _attachPlaybackListeners();
   }
 
   Future<void> leaveSession() async {
+    // Record history before clearing state
+    if (_currentRoom != null && _sessionStart != null) {
+      JamHistoryService.record(
+        JamHistoryEntry(
+          code: _currentRoom!,
+          wasHost: _wasHost,
+          startedAt: _sessionStart!,
+          duration: DateTime.now().difference(_sessionStart!),
+        ),
+      );
+    }
+    _voluntaryLeave = true;
+    _reconnectAttempts = 0;
+    _isReconnecting = false;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
     _applyTaskCount = 0;
@@ -103,6 +151,8 @@ class JamSessionService {
 
     await _playbackStateSub?.cancel();
     _playbackStateSub = null;
+    await _positionSub?.cancel();
+    _positionSub = null;
     if (_mediaItemSubListener != null) {
       GetIt.I<MediaPlayer>().currentSongNotifier.removeListener(
         _mediaItemSubListener!,
@@ -128,7 +178,11 @@ class JamSessionService {
     jamSessionCode.value = null;
     jamParticipants.value = [];
     jamError.value = null;
+    jamStatusNotifier.value = null;
     _myId = null;
+    _currentRoom = null;
+    _wasHost = false;
+    _sessionStart = null;
     _lastAppliedTs = 0;
     _lastCommandedYtid = null;
   }
@@ -143,6 +197,7 @@ class JamSessionService {
 
   void _attachPlaybackListeners() {
     final player = GetIt.I<MediaPlayer>().player;
+
     // Detect play/pause changes
     _playbackStateSub = player.playingStream
         .distinct()
@@ -159,24 +214,19 @@ class JamSessionService {
       _mediaItemSubListener!,
     );
 
-    // Detect manual user seeks (large jumps not caused by normal 1s ticks)
-    player.positionStream.listen((pos) {
+    // Detect manual user seeks (large jumps not caused by normal playback)
+    _positionSub = player.positionStream.listen((pos) {
       if (_lastAppliedTs == 0 || _broadcastSuppressed) {
         _lastKnownPos = pos;
-        return; // ignore startup or if we are currently handling a remote command
+        return;
       }
 
       final diff = (pos - _lastKnownPos).abs();
-      // If position jumped by more than 1.5 seconds unexpectedly (not normal playback sliding)
       if (diff > const Duration(milliseconds: 1500)) {
         _doBroadcast();
-
-        // Suppress incoming state temporarily so we don't snap back to the remote's old state
         _ignoreIncomingUntil = DateTime.now().add(
           const Duration(milliseconds: 2500),
         );
-
-        // Suppress our own outgoing broadcasts that might be triggered by UI state changes
         _suppressBroadcastUntil = DateTime.now().add(
           const Duration(milliseconds: 1000),
         );
@@ -206,16 +256,72 @@ class JamSessionService {
     _sub = _channel!.stream.listen(
       _onMessage,
       onError: (e) {
-        jamError.value = 'Connection error: $e';
         debugPrint('JamSession stream error: $e');
+        if (!_voluntaryLeave) _scheduleReconnect();
       },
       onDone: () {
-        if (jamIsInSession.value) {
-          jamError.value = 'Disconnected from Jam session.';
-          jamIsInSession.value = false;
+        if (!_voluntaryLeave && jamIsInSession.value) {
+          debugPrint(
+            'JamSession: connection closed unexpectedly — trying to reconnect',
+          );
+          _scheduleReconnect();
         }
       },
     );
+  }
+
+  // -------------------------------------------------------------------------
+  // Reconnect logic
+  // -------------------------------------------------------------------------
+
+  void _scheduleReconnect() {
+    if (_isReconnecting) return;
+    if (_reconnectAttempts >= _maxReconnects) {
+      jamError.value = 'Disconnected from Jam session.';
+      jamIsInSession.value = false;
+      jamStatusNotifier.value = null;
+      _isReconnecting = false;
+      return;
+    }
+
+    _isReconnecting = true;
+    _reconnectAttempts++;
+    final delaySeconds = pow(2, _reconnectAttempts - 1).toInt(); // 1s, 2s, 4s
+    jamStatusNotifier.value =
+        'Reconnecting... ($_reconnectAttempts/$_maxReconnects)';
+
+    debugPrint(
+      'JamSession: reconnect attempt $_reconnectAttempts in ${delaySeconds}s',
+    );
+
+    _reconnectTimer = Timer(Duration(seconds: delaySeconds), () async {
+      if (_voluntaryLeave || _currentRoom == null) {
+        _isReconnecting = false;
+        return;
+      }
+
+      // Clean up old channel before reconnecting
+      await _sub?.cancel();
+      _sub = null;
+      try {
+        await _channel?.sink.close();
+      } catch (_) {}
+      _channel = null;
+
+      await _connect(_currentRoom!);
+
+      if (_channel != null) {
+        // Successfully reconnected
+        _reconnectAttempts = 0;
+        _isReconnecting = false;
+        jamStatusNotifier.value = null;
+        _announceSelf(jamIsHost.value ? 'host' : 'guest');
+        debugPrint('JamSession: reconnected to $_currentRoom');
+      } else {
+        _isReconnecting = false;
+        _scheduleReconnect(); // try again
+      }
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -256,8 +362,10 @@ class JamSessionService {
       current.add('$label ($short)');
       jamParticipants.value = current;
     }
-    // Reply immediately so the new peer syncs fast
+    // Reply immediately so the new peer syncs fast.
+    // Send twice with a gap to handle the first packet being lost.
     broadcastNow();
+    Future.delayed(const Duration(milliseconds: 500), broadcastNow);
   }
 
   void _handleLeave(Map<String, dynamic> data) {
@@ -271,25 +379,21 @@ class JamSessionService {
 
   void _applyRemoteState(Map<String, dynamic> data) {
     try {
-      if (_incomingSuppressed) {
-        return; // We recently initiated an action locally, ignore incoming to prevent snap-back
-      }
+      if (_incomingSuppressed) return;
 
       final remoteTs = data['ts'] as int? ?? 0;
 
-      // Ignore stale messages (only apply newer state)
-      if (remoteTs <= _lastAppliedTs) return;
-      _lastAppliedTs = remoteTs;
+      // Ignore stale messages (allow 500ms clock skew between peers)
+      if (remoteTs < _lastAppliedTs - 500) return;
+      if (remoteTs > _lastAppliedTs) _lastAppliedTs = remoteTs;
 
       final ytid = data['ytid'] as String?;
       final posMs = data['positionMs'] as int? ?? 0;
       final isPlaying = data['isPlaying'] as bool? ?? false;
-      // Full song map sent by broadcaster — needed to load song on this device
       final songMap = data['song'] as Map<String, dynamic>?;
 
       if (ytid == null) return;
 
-      // Run async operations without blocking
       _applyAsync(ytid, posMs, isPlaying, songMap);
     } catch (e) {
       debugPrint('JamSession applyRemoteState error: $e');
@@ -308,17 +412,15 @@ class JamSessionService {
       final currentItem = mediaPlayer.currentSongNotifier.value;
       final currentYtid = currentItem?.extras?['videoId'] as String?;
 
-      // ── Song sync ───────────────────────────────────────────────────────
+      // ── Song sync ─────────────────────────────────────────────────────────
       if (currentYtid != ytid && _lastCommandedYtid != ytid) {
         _lastCommandedYtid = ytid;
 
         if (songMap != null && songMap.isNotEmpty) {
-          // Best path: we have the full song data, play it directly
           await mediaPlayer.playSong(Map<String, dynamic>.from(songMap));
-          // Wait for it to start loading before seeking
-          await Future.delayed(const Duration(milliseconds: 1200));
+          // Poll for the player to be ready (up to 3s) instead of fixed delay
+          await _waitForPlayerReady(mediaPlayer.player);
         } else {
-          // Fallback: try to find it in the local queue
           final queue = mediaPlayer.songList;
           final idx = queue.indexWhere((s) {
             final tag = s.tag;
@@ -326,25 +428,23 @@ class JamSessionService {
           });
           if (idx >= 0) {
             await mediaPlayer.player.seek(Duration.zero, index: idx);
-            await Future.delayed(const Duration(milliseconds: 800));
+            await _waitForPlayerReady(mediaPlayer.player);
           } else {
-            // Can't load song — nothing we can do without song data
             return;
           }
         }
       }
 
-      // ── Position sync ───────────────────────────────────────────────────
+      // ── Position sync ─────────────────────────────────────────────────────
       final currentPos = mediaPlayer.player.position;
       final targetPos = Duration(milliseconds: posMs);
       final drift = (currentPos - targetPos).abs();
 
-      // Only seek if drift is meaningful (>1.5 s) and song is ready
       if (drift > const Duration(milliseconds: 1500)) {
         await mediaPlayer.player.seek(targetPos);
       }
 
-      // ── Play/pause sync ─────────────────────────────────────────────────
+      // ── Play/pause sync ───────────────────────────────────────────────────
       final playing = mediaPlayer.player.playing;
       if (isPlaying && !playing) {
         await mediaPlayer.player.play();
@@ -355,12 +455,27 @@ class JamSessionService {
       debugPrint('JamSession _applyAsync error: $e');
     } finally {
       _applyTaskCount--;
-      // Keep it suppressed for 1.5 seconds AFTER the async operations complete
-      // to absorb any lingering event streams from the seek/buffering.
       _suppressBroadcastUntil = DateTime.now().add(
         const Duration(milliseconds: 1500),
       );
     }
+  }
+
+  /// Waits until the player is in a ready state (loading/buffering → ready).
+  /// Polls every 100ms for up to 3 seconds.
+  Future<void> _waitForPlayerReady(AudioPlayer player) async {
+    const maxWait = Duration(seconds: 3);
+    const poll = Duration(milliseconds: 100);
+    final deadline = DateTime.now().add(maxWait);
+    while (DateTime.now().isBefore(deadline)) {
+      final state = player.processingState;
+      if (state == ProcessingState.ready ||
+          state == ProcessingState.completed) {
+        return;
+      }
+      await Future.delayed(poll);
+    }
+    // Timed out — proceed anyway (better to seek at a wrong point than not at all)
   }
 
   // -------------------------------------------------------------------------
@@ -368,7 +483,8 @@ class JamSessionService {
   // -------------------------------------------------------------------------
 
   void _startHeartbeat() {
-    _heartbeatTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+    // 2s heartbeat — smaller drift, faster recovery
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       if (!_broadcastSuppressed) _doBroadcast();
     });
   }
@@ -381,7 +497,6 @@ class JamSessionService {
       final ytid = item?.extras?['videoId'];
       if (ytid == null) return;
 
-      // Get the current song map from the queue so peers can load it directly
       final songMap = item?.extras ?? {};
 
       _send({
@@ -391,7 +506,6 @@ class JamSessionService {
         'ytid': ytid,
         'positionMs': mediaPlayer.player.position.inMilliseconds,
         'isPlaying': mediaPlayer.player.playing,
-        // Send full song map so receiving peers can load song directly
         if (songMap.isNotEmpty) 'song': songMap,
       });
     } catch (e) {
