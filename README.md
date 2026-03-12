@@ -10,7 +10,7 @@
 
 [![GitHub release](https://img.shields.io/github/v/release/Yaboku77/RJ-Music?style=for-the-badge)](https://github.com/Yaboku77/rj_music/releases/latest)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=for-the-badge)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/Yaboku77/RJ-Music?style=for-the-badge)](https://github.com/Yaboku77/rj_music/stargazers)
+[![Stars](https://img.shields.io/github/stars/Yaboku77/RJ-Music?style=for-the-badge)](https://github.com/Yaboku77/RJ-Music/stargazers)
 [![Downloads](https://img.shields.io/github/downloads/Yaboku77/RJ-Music/total?style=for-the-badge)](https://github.com/Yaboku77/RJ-Music/releases)
 
 [Download](https://github.com/Yaboku77/rj_music/releases/latest) • [Website](https://rj-music-five.vercel.app/)  • [Report Bug](https://github.com/Yaboku77/rj_music/issues)
