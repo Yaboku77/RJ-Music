@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: rj-music
+    env: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: APP_SHA256
+        sync: false
